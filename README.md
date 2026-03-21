@@ -1,4 +1,4 @@
-# API Backend - Catálogo, Carrito Público y Usuarios
+# API Backend - Catálogo, Usuarios y Pedidos
 
 API REST consumida por el proyecto Laravel cliente.
 
@@ -50,6 +50,10 @@ La API quedará en: **http://127.0.0.1:8001**
 | PUT | /api/profile | Actualizar datos generales (name, email, phone) |
 | POST | /api/profile/avatar | Actualizar imagen de perfil |
 | PUT | /api/profile/password | Actualizar contraseña (retorna nuevo token) |
+| POST | /api/orders | Crear pedido (requiere `client_id` e `items`) |
+| GET | /api/orders | Listar pedidos de un cliente (`client_id`) |
+| GET | /api/orders/{id} | Ver detalle del pedido (`client_id`) |
+| PUT | /api/orders/{id}/cancel | Cancelar pedido (`client_id`) y reponer stock |
 
 ## Campos esperados por endpoint
 
@@ -57,6 +61,10 @@ La API quedará en: **http://127.0.0.1:8001**
 - `POST /api/login`: `email`, `password`
 - `PUT /api/profile/password`: `current_password`, `password`, `password_confirmation`
 - `POST /api/profile/avatar`: multipart/form-data con archivo `avatar`
+- `POST /api/orders`: `client_id`, `items[]` (`id`, `quantity`)
+- `GET /api/orders`: query param `client_id`
+- `GET /api/orders/{id}`: query param `client_id`
+- `PUT /api/orders/{id}/cancel`: `client_id`
 
 ## Puerto
 
