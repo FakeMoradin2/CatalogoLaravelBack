@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Cupon;
 use App\Models\Pedido;
 use App\Models\Producto;
 use App\Models\User;
@@ -23,10 +24,11 @@ class PedidoController extends Controller
         }
 
         $pedidos = Pedido::query()
+            ->with('items')
             ->where('user_id', $clientId)
             ->orderByDesc('id')
             ->get()
-            ->map(fn (Pedido $pedido) => $this->toPedidoListArray($pedido));
+            ->map(fn (Pedido $pedido) => $pedido->toApiListArray());
 
         return response()->json([
             'orders' => $pedidos,
@@ -53,7 +55,7 @@ class PedidoController extends Controller
         }
 
         return response()->json([
-            'order' => $this->toPedidoDetailArray($pedido),
+            'order' => $pedido->toApiDetailArray(),
         ]);
     }
 
@@ -67,6 +69,7 @@ class PedidoController extends Controller
             'items' => 'required|array|min:1',
             'items.*.id' => 'required|integer|exists:productos,id',
             'items.*.quantity' => 'required|integer|min:1',
+            'coupon_code' => 'nullable|string|max:50',
         ]);
 
         if ((int) $data['client_id'] !== $user->id) {
@@ -81,9 +84,11 @@ class PedidoController extends Controller
                     'user_id' => $user->id,
                     'estado' => 'creado',
                     'total' => 0,
+                    'payment_status' => 'pendiente',
+                    'descuento' => 0,
                 ]);
 
-                $total = 0.0;
+                $subtotalPedido = 0.0;
 
                 foreach ($data['items'] as $rawItem) {
                     $producto = Producto::query()
@@ -104,19 +109,42 @@ class PedidoController extends Controller
                     $producto->stock -= $quantity;
                     $producto->save();
 
-                    $subtotal = (float) $producto->price * $quantity;
-                    $total += $subtotal;
+                    $lineSubtotal = (float) $producto->price * $quantity;
+                    $subtotalPedido += $lineSubtotal;
 
                     $pedido->items()->create([
                         'producto_id' => $producto->id,
                         'title' => $producto->title,
                         'price' => $producto->price,
                         'quantity' => $quantity,
-                        'subtotal' => $subtotal,
+                        'subtotal' => $lineSubtotal,
                     ]);
                 }
 
-                $pedido->total = round($total, 2);
+                $subtotalPedido = round($subtotalPedido, 2);
+
+                $codigoCupon = Cupon::normalizarCodigo($data['coupon_code'] ?? '');
+                $descuento = 0.0;
+                $cuponAplicado = null;
+
+                if ($codigoCupon !== '') {
+                    $cupon = Cupon::query()
+                        ->where('codigo', $codigoCupon)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$cupon || !$cupon->esAplicable()) {
+                        throw new \RuntimeException('El código de descuento no es válido o ya no está disponible.');
+                    }
+
+                    $descuento = $cupon->calcularDescuento((float) $subtotalPedido);
+                    $cuponAplicado = $cupon->codigo;
+                    $cupon->increment('usos_actuales');
+                }
+
+                $pedido->descuento = round($descuento, 2);
+                $pedido->cupon_codigo = $cuponAplicado;
+                $pedido->total = round(max(0.0, $subtotalPedido - $descuento), 2);
                 $pedido->save();
 
                 return $pedido->load('items');
@@ -129,7 +157,7 @@ class PedidoController extends Controller
 
         return response()->json([
             'message' => 'Pedido creado correctamente.',
-            'order' => $this->toPedidoDetailArray($pedido),
+            'order' => $pedido->toApiDetailArray(),
         ], 201);
     }
 
@@ -156,6 +184,10 @@ class PedidoController extends Controller
             return response()->json(['message' => 'El pedido ya está cancelado.'], 422);
         }
 
+        if ($pedido->estado === 'pagado' || $pedido->payment_status === 'pagado') {
+            return response()->json(['message' => 'No se puede cancelar un pedido ya pagado.'], 422);
+        }
+
         DB::transaction(function () use ($pedido): void {
             foreach ($pedido->items as $item) {
                 $producto = Producto::query()
@@ -178,7 +210,7 @@ class PedidoController extends Controller
 
         return response()->json([
             'message' => 'Pedido cancelado correctamente.',
-            'order' => $this->toPedidoDetailArray($pedido),
+            'order' => $pedido->toApiDetailArray(),
         ]);
     }
 
@@ -189,37 +221,5 @@ class PedidoController extends Controller
         ]);
 
         return (int) $validated['client_id'];
-    }
-
-    private function toPedidoListArray(Pedido $pedido): array
-    {
-        return [
-            'id' => $pedido->id,
-            'numero' => $pedido->numero,
-            'fecha' => optional($pedido->created_at)?->toDateTimeString(),
-            'estado' => $pedido->estado,
-            'total' => (float) $pedido->total,
-        ];
-    }
-
-    private function toPedidoDetailArray(Pedido $pedido): array
-    {
-        return [
-            'id' => $pedido->id,
-            'numero' => $pedido->numero,
-            'fecha' => optional($pedido->created_at)?->toDateTimeString(),
-            'estado' => $pedido->estado,
-            'total' => (float) $pedido->total,
-            'items' => $pedido->items->map(function ($item): array {
-                return [
-                    'id' => $item->id,
-                    'producto_id' => $item->producto_id,
-                    'title' => $item->title,
-                    'price' => (float) $item->price,
-                    'quantity' => (int) $item->quantity,
-                    'subtotal' => (float) $item->subtotal,
-                ];
-            })->values()->all(),
-        ];
     }
 }

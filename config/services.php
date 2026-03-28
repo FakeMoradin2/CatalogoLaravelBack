@@ -35,4 +35,15 @@ return [
         ],
     ],
 
+    'stripe' => [
+        // Clave pública (pk_...): compatible con STRIPE_KEY o STRIPE_PUBLISHABLE_KEY (otros proyectos).
+        'key' => env('STRIPE_KEY', env('STRIPE_PUBLISHABLE_KEY')),
+        // Secreto (sk_...): compatible con STRIPE_SECRET o STRIPE_SECRET_KEY (otros proyectos / docs Stripe).
+        'secret' => env('STRIPE_SECRET', env('STRIPE_SECRET_KEY')),
+        'currency' => strtolower((string) env('STRIPE_CURRENCY', 'usd')),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+        'checkout_allow_promotion_codes' => env('STRIPE_CHECKOUT_ALLOW_PROMOTION_CODES', true),
+        'checkout_locale' => env('STRIPE_CHECKOUT_LOCALE', 'es'),
+    ],
+
 ];
